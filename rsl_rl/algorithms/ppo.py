@@ -15,6 +15,8 @@ from rsl_rl.modules.rnd import RandomNetworkDistillation
 from rsl_rl.storage import RolloutStorage
 from rsl_rl.utils import string_to_callable
 
+from typing import Literal
+from torch.func import jacrev, vmap
 
 class PPO:
     """Proximal Policy Optimization algorithm (https://arxiv.org/abs/1707.06347)."""
@@ -45,6 +47,15 @@ class PPO:
         symmetry_cfg: dict | None = None,
         # Distributed training parameters
         multi_gpu_cfg: dict | None = None,
+        # Smooth Loc parameters
+        smooth_alg: Literal["CAPS", "L2C2", "LipsNet++"] | None = None,
+        caps_lambda_t: float = 0.0,
+        caps_lambda_s: float = 0.0,
+        caps_sigma: float = 0.0,
+        l2c2_lambda_pi: float = 0.0,
+        l2c2_lambda_v: float = 0.0,
+        lips_lambda_pi: float = 0.0,
+        smooth_warmup: int = 0,
     ):
         # device-related parameters
         self.device = device
@@ -114,6 +125,18 @@ class PPO:
         self.schedule = schedule
         self.learning_rate = learning_rate
         self.normalize_advantage_per_mini_batch = normalize_advantage_per_mini_batch
+        
+        # Smooth Loc parameters
+        self.smooth_alg = smooth_alg
+        self.caps_lambda_t = caps_lambda_t
+        self.caps_lambda_s = caps_lambda_s
+        self.caps_sigma = caps_sigma
+        self.l2c2_lambda_pi = l2c2_lambda_pi
+        self.l2c2_lambda_v = l2c2_lambda_v
+        self.lips_lambda_pi = lips_lambda_pi
+        self.smooth_warmup = smooth_warmup
+        
+        self.num_update = 0
 
     def init_storage(
         self, training_type, num_envs, num_transitions_per_env, actor_obs_shape, critic_obs_shape, actions_shape
@@ -186,6 +209,7 @@ class PPO:
         )
 
     def update(self):  # noqa: C901
+        self.num_update += 1
         mean_value_loss = 0
         mean_surrogate_loss = 0
         mean_entropy = 0
@@ -210,6 +234,11 @@ class PPO:
         for (
             obs_batch,
             critic_obs_batch,
+            # for smooth loc
+            next_obs_batch,
+            next_critic_obs_batch,
+            cont_batch,
+            
             actions_batch,
             target_values_batch,
             advantages_batch,
@@ -325,6 +354,33 @@ class PPO:
 
             loss = surrogate_loss + self.value_loss_coef * value_loss - self.entropy_coef * entropy_batch.mean()
 
+            #######################################
+            #           Smooth Loc loss           #
+            #######################################
+            if self.smooth_alg is not None:
+                warmup_coeff = min(1.0, self.num_update / self.smooth_warmup) if self.smooth_warmup > 0 else 1.0
+                if self.smooth_alg == "CAPS":
+                    with_noise_obs = obs_batch + self.caps_sigma * torch.randn_like(obs_batch)
+                    caps_t_loss = torch.square(torch.norm(mu_batch - self.policy.act_inference(next_obs_batch), dim=-1)).mean()
+                    caps_s_loss = torch.square(torch.norm(mu_batch - self.policy.act_inference(with_noise_obs), dim=-1)).mean()
+                    caps_loss = self.caps_lambda_t * caps_t_loss + self.caps_lambda_s * caps_s_loss
+                    loss += warmup_coeff * caps_loss
+                elif self.smooth_alg == "L2C2":
+                    mix_weights = cont_batch * torch.rand_like(cont_batch)
+                    mix_obs_batch = obs_batch + mix_weights * (next_obs_batch - obs_batch)
+                    mix_critic_obs_batch = critic_obs_batch + mix_weights * (next_critic_obs_batch - critic_obs_batch)
+                    l2c2_pi_loss = torch.square(torch.norm(mu_batch - self.policy.act_inference(mix_obs_batch), dim=-1)).mean()
+                    l2c2_v_loss = torch.square(torch.norm(value_batch - self.policy.evaluate(mix_critic_obs_batch), dim=-1)).mean()
+                    l2c2_loss = self.l2c2_lambda_pi * l2c2_pi_loss + self.l2c2_lambda_v * l2c2_v_loss
+                    loss += warmup_coeff * l2c2_loss
+                elif self.smooth_alg == "LipsNet++":
+                    jacobi_act = vmap(jacrev(self.policy.actor))(obs_batch)
+                    norm_act = torch.norm(jacobi_act, 2, dim=(1,2))
+                    lips_act_loss = self.lips_lambda_pi * norm_act.mean()
+                    loss += warmup_coeff * lips_act_loss
+                else:
+                    raise ValueError(f"Unknown smooth loc algorithm: {self.smooth_alg}. Should be 'CAPS', 'L2C2' or 'LipsNet++'")
+            
             # Symmetry loss
             if self.symmetry:
                 # obtain the symmetric actions

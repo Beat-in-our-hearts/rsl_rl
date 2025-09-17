@@ -190,10 +190,28 @@ class RolloutStorage:
 
         # Core
         observations = self.observations.flatten(0, 1)
+        
+        # for Smooth Loc
+        # NOTE Use the last observation as padding instead of zeros
+        next_observations = self.observations[1:]
+        last_obs = self.observations[-1:].clone()
+        next_observations = torch.cat((next_observations, last_obs), dim=0)
+        next_observations = next_observations.flatten(0, 1)
+        
         if self.privileged_observations is not None:
             privileged_observations = self.privileged_observations.flatten(0, 1)
+            
+            # for Smooth Loc
+            next_privileged_observations = self.privileged_observations[1:]
+            last_privileged_obs = self.privileged_observations[-1:].clone()
+            next_privileged_observations = torch.cat((next_privileged_observations, last_privileged_obs), dim=0)
+            next_privileged_observations = next_privileged_observations.flatten(0, 1)
         else:
             privileged_observations = observations
+            
+            # for Smooth Loc
+            next_privileged_observations = next_observations
+            
 
         actions = self.actions.flatten(0, 1)
         values = self.values.flatten(0, 1)
@@ -208,6 +226,9 @@ class RolloutStorage:
         # For RND
         if self.rnd_state_shape is not None:
             rnd_state = self.rnd_state.flatten(0, 1)
+            
+        # for Smooth Loc
+        not_dones = 1 - self.dones.float().flatten(0, 1) 
 
         for epoch in range(num_epochs):
             for i in range(num_mini_batches):
@@ -221,6 +242,11 @@ class RolloutStorage:
                 obs_batch = observations[batch_idx]
                 privileged_observations_batch = privileged_observations[batch_idx]
                 actions_batch = actions[batch_idx]
+                
+                # -- Smooth Loc
+                next_obs_batch = next_observations[batch_idx]
+                next_privileged_observations_batch = next_privileged_observations[batch_idx]
+                cont_batch = not_dones[batch_idx]
 
                 # -- For PPO
                 target_values_batch = values[batch_idx]
@@ -237,7 +263,7 @@ class RolloutStorage:
                     rnd_state_batch = None
 
                 # yield the mini-batch
-                yield obs_batch, privileged_observations_batch, actions_batch, target_values_batch, advantages_batch, returns_batch, old_actions_log_prob_batch, old_mu_batch, old_sigma_batch, (
+                yield obs_batch, privileged_observations_batch, next_obs_batch, next_privileged_observations_batch, cont_batch, actions_batch, target_values_batch, advantages_batch, returns_batch, old_actions_log_prob_batch, old_mu_batch, old_sigma_batch, (
                     None,
                     None,
                 ), None, rnd_state_batch
