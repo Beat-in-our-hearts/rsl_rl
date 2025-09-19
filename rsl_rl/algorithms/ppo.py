@@ -51,7 +51,7 @@ class PPO:
         smooth_alg: Literal["CAPS", "L2C2", "LipsNet++"] | None = None,
         caps_lambda_t: float = 0.0,
         caps_lambda_s: float = 0.0,
-        caps_sigma: float = 0.0,
+        caps_sigma: tuple[Literal['add', 'scale'], float] = ('scale', 0.0),
         l2c2_lambda_pi: float = 0.0,
         l2c2_lambda_v: float = 0.0,
         lips_lambda_pi: float = 0.0,
@@ -360,7 +360,12 @@ class PPO:
             if self.smooth_alg is not None:
                 warmup_coeff = min(1.0, self.num_update / self.smooth_warmup) if self.smooth_warmup > 0 else 1.0
                 if self.smooth_alg == "CAPS":
-                    with_noise_obs = obs_batch + self.caps_sigma * torch.randn_like(obs_batch)
+                    if self.caps_sigma[0] == 'add':
+                        with_noise_obs = obs_batch + self.caps_sigma[1] * torch.randn_like(obs_batch)
+                    elif self.caps_sigma[0] == 'scale':
+                        with_noise_obs = obs_batch * (1 + self.caps_sigma[1] * torch.randn_like(obs_batch))
+                    else:
+                        raise ValueError(f"Unknown caps_sigma method: {self.caps_sigma[0]}. Should be 'add' or 'scale'")
                     caps_t_loss = torch.square(torch.norm(mu_batch - self.policy.act_inference(next_obs_batch), dim=-1)).mean()
                     caps_s_loss = torch.square(torch.norm(mu_batch - self.policy.act_inference(with_noise_obs), dim=-1)).mean()
                     caps_loss = self.caps_lambda_t * caps_t_loss + self.caps_lambda_s * caps_s_loss
