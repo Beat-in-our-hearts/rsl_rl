@@ -213,12 +213,6 @@ class PPO_Lagrangian(PPO):
             last_cost_values, self.gamma, self.lam, normalize_advantage=not self.normalize_advantage_per_mini_batch
         )
 
-    def _compute_cost_returns(self, last_cost_values):
-        """Compute GAE for costs (similar to rewards but for constraint violations)."""
-        # This method is now deprecated since RolloutStorage_Cost handles cost returns
-        # We keep it for backward compatibility but it's no longer used
-        pass
-
     def update(self):
         """Update policy using PPO-Lagrangian algorithm."""
         mean_value_loss = 0
