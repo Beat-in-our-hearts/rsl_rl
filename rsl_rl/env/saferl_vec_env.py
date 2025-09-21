@@ -9,7 +9,7 @@ import torch
 from abc import ABC, abstractmethod
 
 
-class SafeVecEnv(ABC):
+class SafeRLVecEnv(ABC):
     """Abstract class for safe vectorized environment.
 
     The safe vectorized environment extends the standard vectorized environment to support constraint-based

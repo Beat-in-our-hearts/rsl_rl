@@ -13,7 +13,7 @@ from collections import deque
 
 import rsl_rl
 from rsl_rl.algorithms import PPO_Lagrangian
-from rsl_rl.env import SafeVecEnv
+from rsl_rl.env import SafeRLVecEnv
 from rsl_rl.modules import (
     ConstraintActorCritic,
     EmpiricalNormalization,
@@ -24,7 +24,7 @@ from rsl_rl.utils import store_code_state
 class SafeRLOnPolicyRunner:
     """Safe reinforcement learning on-policy runner for training and evaluation with constraint handling."""
 
-    def __init__(self, env: SafeVecEnv, train_cfg: dict, log_dir: str | None = None, device="cpu"):
+    def __init__(self, env: SafeRLVecEnv, train_cfg: dict, log_dir: str | None = None, device="cpu"):
         self.cfg = train_cfg
         self.alg_cfg = train_cfg["algorithm"]
         self.policy_cfg = train_cfg["policy"]

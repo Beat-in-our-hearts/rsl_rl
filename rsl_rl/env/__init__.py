@@ -6,6 +6,6 @@
 """Submodule defining the environment definitions."""
 
 from .vec_env import VecEnv
-from .safe_vec_env import SafeVecEnv
+from .saferl_vec_env import SafeRLVecEnv
 
-__all__ = ["VecEnv", "SafeVecEnv"]
+__all__ = ["VecEnv", "SafeRLVecEnv"]
