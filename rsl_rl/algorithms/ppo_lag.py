@@ -10,7 +10,7 @@ import torch.nn as nn
 import torch.optim as optim
 from itertools import chain
 
-from rsl_rl.modules.constrain_actor_critic import ConstraintActorCritic
+from rsl_rl.modules.constraint_actor_critic import ConstraintActorCritic
 from rsl_rl.storage.saferl_rollout_storage import SafeRL_RolloutStorage
 from rsl_rl.algorithms.ppo import PPO
 

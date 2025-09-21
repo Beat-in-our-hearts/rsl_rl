@@ -88,7 +88,7 @@ class ConstraintActorCritic(ActorCritic):
         
         print(f"Cost Critic MLP: {self.cost_critic}")
 
-    def evaluate_cost(self, critic_observations, **kwargs):
+    def evaluate_cost(self, critic_observations, **kwargs) -> torch.Tensor:
         """Evaluate the cost value function.
         
         Args:
