@@ -350,7 +350,7 @@ class PPO_Lagrangian(PPO):
             # Compute Lagrangian surrogate loss (for costs)
             # This penalizes policy for violating constraints
             current_lambda = self.lagrangian_multiplier.detach()  # Don't backprop through lambda here
-            cost_surrogate = torch.squeeze(cost_advantages_batch) * ratio
+            cost_surrogate = torch.squeeze(cost_advantages_batch) * ratio # NOTE the sign here is positive since we want to minimize costs
             cost_surrogate_clipped = torch.squeeze(cost_advantages_batch) * torch.clamp(
                 ratio, 1.0 - self.clip_param, 1.0 + self.clip_param
             )
