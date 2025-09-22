@@ -411,7 +411,7 @@ class SafeRLOnPolicyRunner:
             saved_dict["privileged_obs_norm_state_dict"] = self.privileged_obs_normalizer.state_dict()
         # -- Save Lagrangian multiplier for safe RL
         saved_dict["lagrangian_multiplier"] = self.alg.lagrangian_multiplier
-        saved_dict["lagrangian_optimizer_state_dict"] = self.alg.lagrangian_optimizer.state
+        saved_dict["lagrangian_optimizer_state_dict"] = self.alg.lagrangian_optimizer.state_dict()
         # save model
         torch.save(saved_dict, path)
 
@@ -445,7 +445,10 @@ class SafeRLOnPolicyRunner:
             # -- algorithm optimizer
             self.alg.optimizer.load_state_dict(loaded_dict["optimizer_state_dict"])
             # -- Lagrangian optimizer for safe RL
-            self.alg.lagrangian_optimizer.load_state_dict(loaded_dict["lagrangian_optimizer_state_dict"])
+            try:
+                self.alg.lagrangian_optimizer.load_state_dict(loaded_dict["lagrangian_optimizer_state_dict"])
+            except: 
+                print("warning: could not load lagrangian optimizer state dict")
             # -- RND optimizer if used
             if self.alg.rnd:
                 self.alg.rnd_optimizer.load_state_dict(loaded_dict["rnd_optimizer_state_dict"])
