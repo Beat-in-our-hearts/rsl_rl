@@ -119,6 +119,7 @@ class PPO_Lagrangian(PPO):
         self.constraint_threshold = constraint_threshold
         self.lagrangian_multiplier_max = lagrangian_multiplier_max
         self.lagrangian_multiplier_min = lagrangian_multiplier_min
+        self.lagrangian_multiplier_lr = lagrangian_multiplier_lr
         self.cost_value_loss_coef = cost_value_loss_coef
 
         # Check if policy supports cost evaluation
@@ -127,25 +128,43 @@ class PPO_Lagrangian(PPO):
                   "Consider using ConstraintActorCritic in constrained RL. ")
             raise ValueError("Policy does not have 'evaluate_cost' method.")
 
-        # Initialize Lagrangian multiplier as a learnable parameter
-        self.log_lagrangian_multiplier = torch.tensor(
-            torch.log(torch.tensor(lagrangian_multiplier_init)).item(), 
-            requires_grad=True, 
-            device=self.device
+        # Initialize Lagrangian multiplier as a learnable parameter (following OmniSafe design)
+        # Use direct parameter instead of log-space
+        init_value = max(lagrangian_multiplier_init, 0.0)
+        self._lagrangian_multiplier = torch.nn.Parameter(
+            torch.as_tensor(init_value, dtype=torch.float32, device=self.device),
+            requires_grad=True,
         )
         
+        # ReLU projection to ensure non-negativity
+        self.lambda_range_projection = torch.nn.ReLU()
+        
         # Optimizer for Lagrangian multiplier
-        self.lagrangian_optimizer = optim.Adam([self.log_lagrangian_multiplier], lr=lagrangian_multiplier_lr)
+        self.lagrangian_optimizer = optim.Adam(
+            [self._lagrangian_multiplier], 
+            lr=lagrangian_multiplier_lr
+        )
 
 
     @property
     def lagrangian_multiplier(self):
-        """Get current Lagrangian multiplier value (always positive due to exp)."""
-        return torch.clamp(
-            torch.exp(self.log_lagrangian_multiplier), 
-            self.lagrangian_multiplier_min, 
-            self.lagrangian_multiplier_max
-        )
+        """Get current Lagrangian multiplier value (non-negative due to ReLU projection)."""
+        return self.lambda_range_projection(self._lagrangian_multiplier)
+
+    def compute_lambda_loss(self, mean_ep_cost: float) -> torch.Tensor:
+        """Compute the loss of the lagrangian multiplier.
+        
+        Following OmniSafe's approach:
+        - When cost > threshold: loss is negative, gradient ascent increases lambda
+        - When cost < threshold: loss is positive, gradient descent decreases lambda
+        
+        Args:
+            mean_ep_cost: the mean episode cost
+            
+        Returns:
+            the loss of the lagrangian multiplier
+        """
+        return -self._lagrangian_multiplier * (mean_ep_cost - self.constraint_threshold)
 
     def init_storage(
         self, training_type, num_envs, num_transitions_per_env, actor_obs_shape, critic_obs_shape, actions_shape
@@ -221,7 +240,6 @@ class PPO_Lagrangian(PPO):
 
         # Cost-specific losses
         mean_cost_value_loss = 0
-        mean_lagrangian_loss = 0
         
         # RND loss
         if self.rnd:
@@ -435,15 +453,6 @@ class PPO_Lagrangian(PPO):
             if self.rnd_optimizer:
                 self.rnd_optimizer.step()
 
-            # Update Lagrangian multiplier
-            # We want to maximize lambda if constraint is violated (cost > threshold)
-            # and minimize lambda if constraint is satisfied (cost < threshold)
-            lagrangian_loss = -self.lagrangian_multiplier * (mean_cost_returns - self.constraint_threshold)
-            
-            self.lagrangian_optimizer.zero_grad()
-            lagrangian_loss.backward()
-            self.lagrangian_optimizer.step()
-
             # Accumulate losses for reporting
             mean_value_loss += value_loss.item()
             mean_surrogate_loss += surrogate_loss.item()
@@ -451,7 +460,6 @@ class PPO_Lagrangian(PPO):
             
             # Cost-specific losses
             mean_cost_value_loss += cost_value_loss.item()
-            mean_lagrangian_loss += lagrangian_loss.item()
             
             if mean_rnd_loss is not None:
                 mean_rnd_loss += rnd_loss.item()
@@ -466,12 +474,27 @@ class PPO_Lagrangian(PPO):
         
         # Cost-specific losses
         mean_cost_value_loss /= num_updates
-        mean_lagrangian_loss /= num_updates
         
         if mean_rnd_loss is not None:
             mean_rnd_loss /= num_updates
         if mean_symmetry_loss is not None:
             mean_symmetry_loss /= num_updates
+
+        # Update Lagrangian multiplier after all mini-batches
+        # Following OmniSafe's approach: lambda_loss = -lambda * (cost - threshold)
+        # This increases lambda when cost > threshold, decreases when cost < threshold
+        lagrangian_loss = self.compute_lambda_loss(mean_cost_returns.item())
+        
+        self.lagrangian_optimizer.zero_grad()
+        lagrangian_loss.backward()
+        self.lagrangian_optimizer.step()
+        
+        # Project lambda to [0, lagrangian_multiplier_max] range
+        with torch.no_grad():
+            self._lagrangian_multiplier.data.clamp_(
+                self.lagrangian_multiplier_min,
+                self.lagrangian_multiplier_max,
+            )
 
         # Clear storage
         self.storage.clear()
@@ -483,7 +506,7 @@ class PPO_Lagrangian(PPO):
             "entropy": mean_entropy,
             # Cost-specific entries
             "cost_value_function": mean_cost_value_loss,
-            "lagrangian_loss": mean_lagrangian_loss,
+            "lagrangian_loss": lagrangian_loss.item(),
             "lagrangian_multiplier": self.lagrangian_multiplier.item(),
             "mean_cost_returns": mean_cost_returns.item(),
             "constraint_violation": (mean_cost_returns - self.constraint_threshold).item(),
