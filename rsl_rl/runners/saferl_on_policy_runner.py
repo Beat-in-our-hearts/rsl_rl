@@ -472,7 +472,7 @@ class SafeRLOnPolicyRunner:
         # -- Policy
         self.alg.policy.train()
         # -- Lagrangian
-        self.alg.log_lagrangian_multiplier.requires_grad_(True)
+        self.alg.lagrangian_multiplier.requires_grad_(True)
         # -- RND
         if self.alg.rnd:
             self.alg.rnd.train()
@@ -485,7 +485,7 @@ class SafeRLOnPolicyRunner:
         # -- Policy
         self.alg.policy.eval()
         # -- Lagrangian
-        self.alg.log_lagrangian_multiplier.requires_grad_(False)
+        self.alg.lagrangian_multiplier.requires_grad_(False)
         # -- RND
         if self.alg.rnd:
             self.alg.rnd.eval()
