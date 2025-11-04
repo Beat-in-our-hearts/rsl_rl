@@ -424,7 +424,7 @@ class SafeRLOnPolicyRunner:
         # -- Load model
         resumed_training = self.alg.policy.load_state_dict(loaded_dict["model_state_dict"])
         # -- Load Lagrangian multiplier for safe RL
-        self.alg.log_lagrangian_multiplier.data = loaded_dict["lagrangian_multiplier"].data
+        self.alg._lagrangian_multiplier.data = loaded_dict["lagrangian_multiplier"].data
         # -- Load RND model if used
         if self.alg.rnd:
             self.alg.rnd.load_state_dict(loaded_dict["rnd_state_dict"])
@@ -472,7 +472,7 @@ class SafeRLOnPolicyRunner:
         # -- Policy
         self.alg.policy.train()
         # -- Lagrangian
-        self.alg.lagrangian_multiplier.requires_grad_(True)
+        self.alg._lagrangian_multiplier.requires_grad_(True)
         # -- RND
         if self.alg.rnd:
             self.alg.rnd.train()
@@ -485,7 +485,7 @@ class SafeRLOnPolicyRunner:
         # -- Policy
         self.alg.policy.eval()
         # -- Lagrangian
-        self.alg.lagrangian_multiplier.requires_grad_(False)
+        self.alg._lagrangian_multiplier.requires_grad_(False)
         # -- RND
         if self.alg.rnd:
             self.alg.rnd.eval()
